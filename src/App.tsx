@@ -252,6 +252,16 @@ function AuthPanel({ onSend, message, loading }: { onSend: (email: string) => Pr
   )
 }
 
+function RemoteDataPanel({ error }: { error: string }) {
+  return (
+    <Card className="auth-card">
+      <Leaf className="brand-mark" />
+      <h1>{error ? 'Je gegevens konden niet worden geladen' : 'Je gegevens worden geladen'}</h1>
+      <p>{error || 'Een rustig moment, we halen je persoonlijke gegevens veilig op.'}</p>
+    </Card>
+  )
+}
+
 export default function App() {
   const auth = useAuth()
   const [initialLocalData] = useState(loadLocalDataResult)
@@ -260,6 +270,8 @@ export default function App() {
   const [data, setData] = useState<AppData>(initialLocalData.data)
   const [dark, setDark] = useState(initialTheme.value === 'dark')
   const [storageIssue, setStorageIssue] = useState<StorageIssue | null>(initialLocalData.issue ?? initialTheme.issue)
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null)
+  const [remoteLoadError, setRemoteLoadError] = useState<{ userId: string; message: string } | null>(null)
   const userId = auth.session?.user.id
 
   useEffect(() => {
@@ -269,12 +281,41 @@ export default function App() {
   }, [dark])
 
   useEffect(() => {
-    if (!userId) return
-    void loadRemoteData(userId).then(setData)
-  }, [userId])
+    let active = true
+
+    if (isSupabaseConfigured) {
+      queueMicrotask(() => {
+        if (!active) return
+        setData(initialLocalData.data)
+        setLoadedUserId(null)
+        setRemoteLoadError(null)
+      })
+    }
+
+    if (userId) {
+      void loadRemoteData(userId)
+        .then((nextData) => {
+          if (!active) return
+          setData(nextData)
+          setLoadedUserId(userId)
+          setRemoteLoadError(null)
+        })
+        .catch(() => {
+          if (!active) return
+          setRemoteLoadError({
+            userId,
+            message: 'Probeer de pagina opnieuw te laden. Er worden geen gegevens van een ander account getoond.',
+          })
+        })
+    }
+
+    return () => {
+      active = false
+    }
+  }, [initialLocalData.data, userId])
 
   useEffect(() => {
-    if (!userId) {
+    if (!isSupabaseConfigured && !userId) {
       const issue = saveLocalData(data)
       if (issue) queueMicrotask(() => setStorageIssue(issue))
     }
@@ -298,12 +339,23 @@ export default function App() {
     return <InsightsPage data={data} />
   }, [data, page, userId])
 
-  if (isSupabaseConfigured && !auth.loading && !auth.session) {
+  if (isSupabaseConfigured && !auth.session) {
     return (
       <main className="auth-shell">
         <div className="auth-stack">
           <StorageNotice issue={storageIssue} />
           <AuthPanel onSend={auth.sendMagicLink} message={auth.message} loading={auth.loading} />
+        </div>
+      </main>
+    )
+  }
+
+  if (userId && loadedUserId !== userId) {
+    return (
+      <main className="auth-shell">
+        <div className="auth-stack">
+          <StorageNotice issue={storageIssue} />
+          <RemoteDataPanel error={remoteLoadError?.userId === userId ? remoteLoadError.message : ''} />
         </div>
       </main>
     )
