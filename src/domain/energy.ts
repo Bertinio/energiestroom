@@ -1,9 +1,10 @@
 import type { Activity } from '../types'
+import { normalizeEnergy } from './validation'
 
 export type EnergyStatus = 'Leeg' | 'Laag' | 'Oké' | 'Goed' | 'Vol'
 
-export function clampEnergy(value: number): number {
-  return Math.min(100, Math.max(0, Math.round(value)))
+export function clampEnergy(value: unknown): number {
+  return normalizeEnergy(value)
 }
 
 export function getEnergyStatus(value: number): EnergyStatus {
@@ -16,14 +17,15 @@ export function getEnergyStatus(value: number): EnergyStatus {
 }
 
 export function netEnergy(activity: Activity): number {
-  return activity.energyGain - activity.energyCost
+  return normalizeEnergy(activity.energyGain, 0) - normalizeEnergy(activity.energyCost, 0)
 }
 
 export function fitsEnergyLevel(activity: Activity, energy: number): boolean {
   const available = clampEnergy(energy)
-  if (activity.energyCost === 0) return true
+  const energyCost = normalizeEnergy(activity.energyCost, 0)
+  if (energyCost === 0) return true
   const maximumCost = Math.max(10, Math.round(available * 0.55))
-  return activity.energyCost <= maximumCost
+  return energyCost <= maximumCost
 }
 
 export function getGentleSuggestion(energy: number): string {
