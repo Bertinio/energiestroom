@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from './App'
 
 describe('Energiestroom', () => {
@@ -8,8 +8,37 @@ describe('Energiestroom', () => {
     localStorage.clear()
   })
 
+  afterEach(() => {
+    cleanup()
+  })
+
   it('toont de rustige dagelijkse check-in', () => {
     render(<App />)
+    expect(screen.getByRole('heading', { name: /hoe stroomt je energie vandaag/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/huidige energie/i)).toHaveValue('50')
+  })
+
+  it.each([
+    ['een leeg object', {}],
+    ['null', null],
+    ['ontbrekende arrays', { schemaVersion: 1, data: { activities: [] } }],
+    [
+      'verkeerde datatypes',
+      {
+        schemaVersion: 1,
+        data: {
+          activities: 'geen array',
+          checkIns: [],
+          plans: {},
+          reflections: [],
+        },
+      },
+    ],
+  ])('blijft bruikbaar bij corrupte opslag: %s', (_name, storedValue) => {
+    localStorage.setItem('energiestroom-demo-v1', JSON.stringify(storedValue))
+
+    render(<App />)
+
     expect(screen.getByRole('heading', { name: /hoe stroomt je energie vandaag/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/huidige energie/i)).toHaveValue('50')
   })
