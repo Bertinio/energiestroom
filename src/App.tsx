@@ -16,6 +16,7 @@ import {
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { fitsEnergyLevel, getEnergyStatus, getGentleSuggestion, netEnergy } from './domain/energy'
+import { isValidDate, normalizeDate, normalizeEnergy, normalizeText } from './domain/validation'
 import { useAuth } from './hooks/useAuth'
 import { loadLocalDataResult, loadRemoteData, readLocalStorage, saveCheckIn, saveLocalData, savePlan, saveReflection, writeLocalStorage, type StorageIssue } from './lib/data-store'
 import { isSupabaseConfigured } from './lib/supabase'
@@ -59,19 +60,19 @@ function TodayPage({
   onSave: (checkIn: DailyCheckIn) => Promise<void>
 }) {
   const existing = data.checkIns.find((item) => item.date === today)
-  const [energy, setEnergy] = useState(existing?.energy ?? 50)
-  const [asksEnergy, setAsksEnergy] = useState(existing?.asksEnergy ?? '')
-  const [givesEnergy, setGivesEnergy] = useState(existing?.givesEnergy ?? '')
+  const [energy, setEnergy] = useState(() => normalizeEnergy(existing?.energy))
+  const [asksEnergy, setAsksEnergy] = useState(() => normalizeText(existing?.asksEnergy))
+  const [givesEnergy, setGivesEnergy] = useState(() => normalizeText(existing?.givesEnergy))
   const [saved, setSaved] = useState(false)
 
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
     await onSave({
       id: existing?.id ?? crypto.randomUUID(),
-      date: today,
-      energy,
-      asksEnergy,
-      givesEnergy,
+      date: normalizeDate(today),
+      energy: normalizeEnergy(energy),
+      asksEnergy: normalizeText(asksEnergy),
+      givesEnergy: normalizeText(givesEnergy),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     })
     setSaved(true)
@@ -97,15 +98,15 @@ function TodayPage({
             min="0"
             max="100"
             value={energy}
-            onChange={(event) => { setEnergy(Number(event.target.value)); setSaved(false) }}
+            onChange={(event) => { setEnergy(normalizeEnergy(Number(event.target.value))); setSaved(false) }}
           />
           <div className="range-labels"><span>Leeg</span><span>Vol</span></div>
         </Card>
         <Card>
           <label htmlFor="asks">Wat vraagt vandaag energie van je?</label>
-          <textarea id="asks" value={asksEnergy} onChange={(event) => setAsksEnergy(event.target.value)} placeholder="Bijvoorbeeld: veel afspraken, weinig slaap…" />
+          <textarea id="asks" value={asksEnergy} onChange={(event) => setAsksEnergy(normalizeText(event.target.value))} placeholder="Bijvoorbeeld: veel afspraken, weinig slaap…" />
           <label htmlFor="gives">Wat zou je vandaag energie kunnen geven?</label>
-          <textarea id="gives" value={givesEnergy} onChange={(event) => setGivesEnergy(event.target.value)} placeholder="Bijvoorbeeld: buitenlucht, stilte, iets maken…" />
+          <textarea id="gives" value={givesEnergy} onChange={(event) => setGivesEnergy(normalizeText(event.target.value))} placeholder="Bijvoorbeeld: buitenlucht, stilte, iets maken…" />
           <button className="primary-button" type="submit">{saved ? <Check /> : <Leaf />}{saved ? 'Bewaard' : 'Bewaar dit moment'}</button>
         </Card>
       </form>
@@ -147,7 +148,7 @@ function PlannerPage({
   data: AppData
   onPlan: (activityId: string) => Promise<void>
 }) {
-  const energy = data.checkIns.find((item) => item.date === today)?.energy ?? 50
+  const energy = normalizeEnergy(data.checkIns.find((item) => item.date === today)?.energy)
   const fitting = data.activities.filter((activity) => fitsEnergyLevel(activity, energy))
   const plannedIds = data.plans.filter((plan) => plan.date === today).map((plan) => plan.activityId)
   return (
@@ -172,13 +173,20 @@ function PlannerPage({
 
 function ReflectionPage({ data, onSave }: { data: AppData; onSave: (reflection: EveningReflection) => Promise<void> }) {
   const existing = data.reflections.find((item) => item.date === today)
-  const [gave, setGave] = useState(existing?.gaveEnergy ?? '')
-  const [cost, setCost] = useState(existing?.costEnergy ?? '')
-  const [feeling, setFeeling] = useState(existing?.feeling ?? 50)
+  const [gave, setGave] = useState(() => normalizeText(existing?.gaveEnergy))
+  const [cost, setCost] = useState(() => normalizeText(existing?.costEnergy))
+  const [feeling, setFeeling] = useState(() => normalizeEnergy(existing?.feeling))
   const [saved, setSaved] = useState(false)
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
-    await onSave({ id: existing?.id ?? crypto.randomUUID(), date: today, gaveEnergy: gave, costEnergy: cost, feeling, createdAt: existing?.createdAt ?? new Date().toISOString() })
+    await onSave({
+      id: existing?.id ?? crypto.randomUUID(),
+      date: normalizeDate(today),
+      gaveEnergy: normalizeText(gave),
+      costEnergy: normalizeText(cost),
+      feeling: normalizeEnergy(feeling),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    })
     setSaved(true)
   }
   return (
@@ -186,13 +194,13 @@ function ReflectionPage({ data, onSave }: { data: AppData; onSave: (reflection: 
       <header className="page-header"><p className="eyebrow">Avondreflectie</p><h1>Hoe was je dag voor je energie?</h1><p>Terugkijken zonder oordeel. Een paar woorden is genoeg.</p></header>
       <form onSubmit={(event) => void submit(event)} className="page-stack">
         <Card>
-          <label htmlFor="gave">Wat gaf je energie?</label><textarea id="gave" value={gave} onChange={(event) => setGave(event.target.value)} placeholder="Een moment, persoon of activiteit…" />
-          <label htmlFor="cost">Wat kostte je energie?</label><textarea id="cost" value={cost} onChange={(event) => setCost(event.target.value)} placeholder="Iets dat zwaar of veel voelde…" />
+          <label htmlFor="gave">Wat gaf je energie?</label><textarea id="gave" value={gave} onChange={(event) => setGave(normalizeText(event.target.value))} placeholder="Een moment, persoon of activiteit…" />
+          <label htmlFor="cost">Wat kostte je energie?</label><textarea id="cost" value={cost} onChange={(event) => setCost(normalizeText(event.target.value))} placeholder="Iets dat zwaar of veel voelde…" />
         </Card>
         <Card>
           <label htmlFor="feeling">Hoe voel je je nu?</label>
           <div className="feeling-value">{feeling} <small>/ 100</small></div>
-          <input id="feeling" type="range" min="0" max="100" value={feeling} onChange={(event) => setFeeling(Number(event.target.value))} />
+          <input id="feeling" type="range" min="0" max="100" value={feeling} onChange={(event) => setFeeling(normalizeEnergy(Number(event.target.value)))} />
           <div className="range-labels"><span>Uitgeput</span><span>Ruim</span></div>
           <button className="primary-button" type="submit">{saved ? <Check /> : <Moon />}{saved ? 'Reflectie bewaard' : 'Bewaar mijn reflectie'}</button>
         </Card>
@@ -202,7 +210,10 @@ function ReflectionPage({ data, onSave }: { data: AppData; onSave: (reflection: 
 }
 
 function InsightsPage({ data }: { data: AppData }) {
-  const recent = [...data.checkIns].slice(-7)
+  const recent = data.checkIns
+    .filter((item) => isValidDate(item.date))
+    .slice(-7)
+    .map((item) => ({ ...item, energy: normalizeEnergy(item.energy) }))
   const average = recent.length ? Math.round(recent.reduce((sum, item) => sum + item.energy, 0) / recent.length) : null
   const mostRestorative = [...data.activities].sort((a, b) => netEnergy(b) - netEnergy(a))[0]
   return (

@@ -1,4 +1,5 @@
 import { initialDemoData } from '../data/demo'
+import { isValidDate, isValidEnergy, isValidText, normalizeDate, normalizeEnergy, normalizeText } from '../domain/validation'
 import { activityCategories, type Activity, type ActivityCategory, type AppData, type DailyCheckIn, type EveningReflection, type PlannedActivity } from '../types'
 import { supabase } from './supabase'
 
@@ -71,61 +72,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === 'string'
-}
-
-function isEnergyValue(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
-}
-
-function isDate(value: unknown): value is string {
-  if (!isString(value) || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const parsed = new Date(`${value}T00:00:00.000Z`)
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
-}
-
 function isTimestamp(value: unknown): value is string {
-  return isString(value) && !Number.isNaN(Date.parse(value))
+  return isValidText(value) && !Number.isNaN(Date.parse(value))
 }
 
 function isActivity(value: unknown): value is Activity {
   return isRecord(value)
-    && isString(value.id)
-    && isString(value.name)
-    && isEnergyValue(value.energyCost)
-    && isEnergyValue(value.energyGain)
-    && isString(value.category)
+    && isValidText(value.id)
+    && isValidText(value.name)
+    && isValidEnergy(value.energyCost)
+    && isValidEnergy(value.energyGain)
+    && isValidText(value.category)
     && activityCategories.includes(value.category as ActivityCategory)
-    && isString(value.description)
+    && isValidText(value.description)
     && (value.isCustom === undefined || typeof value.isCustom === 'boolean')
 }
 
 function isDailyCheckIn(value: unknown): value is DailyCheckIn {
   return isRecord(value)
-    && isString(value.id)
-    && isDate(value.date)
-    && isEnergyValue(value.energy)
-    && isString(value.asksEnergy)
-    && isString(value.givesEnergy)
+    && isValidText(value.id)
+    && isValidDate(value.date)
+    && isValidEnergy(value.energy)
+    && isValidText(value.asksEnergy)
+    && isValidText(value.givesEnergy)
     && isTimestamp(value.createdAt)
 }
 
 function isPlannedActivity(value: unknown): value is PlannedActivity {
   return isRecord(value)
-    && isString(value.id)
-    && isString(value.activityId)
-    && isDate(value.date)
+    && isValidText(value.id)
+    && isValidText(value.activityId)
+    && isValidDate(value.date)
     && typeof value.completed === 'boolean'
 }
 
 function isEveningReflection(value: unknown): value is EveningReflection {
   return isRecord(value)
-    && isString(value.id)
-    && isDate(value.date)
-    && isString(value.gaveEnergy)
-    && isString(value.costEnergy)
-    && isEnergyValue(value.feeling)
+    && isValidText(value.id)
+    && isValidDate(value.date)
+    && isValidText(value.gaveEnergy)
+    && isValidText(value.costEnergy)
+    && isValidEnergy(value.feeling)
     && isTimestamp(value.createdAt)
 }
 
@@ -254,13 +241,14 @@ export async function loadRemoteData(userId: string): Promise<AppData> {
 
 export async function saveCheckIn(userId: string, checkIn: DailyCheckIn): Promise<void> {
   if (!supabase) return
+  const safeDate = new Date().toISOString().slice(0, 10)
   const { error } = await supabase.from('daily_check_ins').upsert(
     {
       user_id: userId,
-      check_in_date: checkIn.date,
-      energy: checkIn.energy,
-      asks_energy: checkIn.asksEnergy,
-      gives_energy: checkIn.givesEnergy,
+      check_in_date: normalizeDate(checkIn.date, safeDate),
+      energy: normalizeEnergy(checkIn.energy),
+      asks_energy: normalizeText(checkIn.asksEnergy),
+      gives_energy: normalizeText(checkIn.givesEnergy),
     },
     { onConflict: 'user_id,check_in_date' },
   )
@@ -269,13 +257,14 @@ export async function saveCheckIn(userId: string, checkIn: DailyCheckIn): Promis
 
 export async function saveReflection(userId: string, reflection: EveningReflection): Promise<void> {
   if (!supabase) return
+  const safeDate = new Date().toISOString().slice(0, 10)
   const { error } = await supabase.from('evening_reflections').upsert(
     {
       user_id: userId,
-      reflection_date: reflection.date,
-      gave_energy: reflection.gaveEnergy,
-      cost_energy: reflection.costEnergy,
-      feeling: reflection.feeling,
+      reflection_date: normalizeDate(reflection.date, safeDate),
+      gave_energy: normalizeText(reflection.gaveEnergy),
+      cost_energy: normalizeText(reflection.costEnergy),
+      feeling: normalizeEnergy(reflection.feeling),
     },
     { onConflict: 'user_id,reflection_date' },
   )
@@ -284,8 +273,14 @@ export async function saveReflection(userId: string, reflection: EveningReflecti
 
 export async function savePlan(userId: string, activityId: string, date: string): Promise<void> {
   if (!supabase) return
+  const safeDate = new Date().toISOString().slice(0, 10)
   const { error } = await supabase
     .from('planned_activities')
-    .insert({ user_id: userId, activity_id: activityId, planned_date: date, completed: false })
+    .insert({
+      user_id: userId,
+      activity_id: normalizeText(activityId),
+      planned_date: normalizeDate(date, safeDate),
+      completed: false,
+    })
   if (error) throw error
 }

@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { initialDemoData } from './data/demo'
 
 describe('Energiestroom', () => {
   beforeEach(() => {
@@ -78,5 +79,31 @@ describe('Energiestroom', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/lokale opslagruimte is vol/i)
     await user.click(screen.getAllByRole('button', { name: /bibliotheek/i })[0]!)
     expect(screen.getByRole('heading', { name: /wat geeft en vraagt energie/i })).toBeInTheDocument()
+  })
+
+  it('herstelt ongeldige energie en datums zonder crashende inzichten', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('energiestroom-demo-v1', JSON.stringify({
+      schemaVersion: 1,
+      data: {
+        ...initialDemoData,
+        checkIns: [{
+          id: 'ongeldig',
+          date: '2026-02-30',
+          energy: 500,
+          asksEnergy: 'Drukte',
+          givesEnergy: 'Rust',
+          createdAt: '2026-11-24T12:00:00.000Z',
+        }],
+      },
+    }))
+
+    render(<App />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/gegevens konden niet veilig worden gelezen/i)
+    expect(screen.getByLabelText(/huidige energie/i)).toHaveValue('50')
+    await user.click(screen.getAllByRole('button', { name: /inzichten/i })[0]!)
+    expect(screen.getByRole('heading', { name: /patronen die je rustig mag bekijken/i })).toBeInTheDocument()
+    expect(screen.getByText(/je inzichten groeien vanzelf/i)).toBeInTheDocument()
   })
 })
