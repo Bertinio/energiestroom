@@ -1,12 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initialDemoData } from '../data/demo'
-import { loadLocalData, saveLocalData } from './data-store'
+import { loadLocalData, loadLocalDataResult, saveLocalData } from './data-store'
 
 const storageKey = 'energiestroom-demo-v1'
 
 describe('lokale dataopslag', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it.each([
@@ -76,5 +80,32 @@ describe('lokale dataopslag', () => {
     }))
 
     expect(loadLocalData()).toEqual(initialDemoData)
+  })
+
+  it('valt terug op demo-data wanneer getItem geblokkeerd is', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Opslag geblokkeerd', 'SecurityError')
+    })
+
+    const result = loadLocalDataResult()
+
+    expect(result.data).toEqual(initialDemoData)
+    expect(result.issue).toMatchObject({ kind: 'unavailable' })
+  })
+
+  it('meldt QuotaExceededError zonder te gooien', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Opslag vol', 'QuotaExceededError')
+    })
+
+    expect(saveLocalData(initialDemoData)).toMatchObject({ kind: 'quota-exceeded' })
+  })
+
+  it('meldt andere setItem-fouten als niet-beschikbare opslag', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Opslag geblokkeerd', 'SecurityError')
+    })
+
+    expect(saveLocalData(initialDemoData)).toMatchObject({ kind: 'unavailable' })
   })
 })

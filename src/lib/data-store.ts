@@ -7,8 +7,60 @@ const currentStorageSchemaVersion = 1
 
 type StorageMigration = (value: unknown) => unknown
 
+export type StorageIssueKind = 'invalid-data' | 'quota-exceeded' | 'unavailable'
+
+export interface StorageIssue {
+  kind: StorageIssueKind
+  message: string
+}
+
+interface StorageReadResult {
+  value: string | null
+  issue: StorageIssue | null
+}
+
+export interface LocalDataLoadResult {
+  data: AppData
+  issue: StorageIssue | null
+}
+
 const storageMigrations: Record<number, StorageMigration> = {
   0: (data) => ({ schemaVersion: 1, data }),
+}
+
+function unavailableStorageIssue(): StorageIssue {
+  return {
+    kind: 'unavailable',
+    message: 'Lokale opslag is niet beschikbaar. Je kunt de app blijven gebruiken, maar wijzigingen verdwijnen mogelijk wanneer je dit tabblad sluit.',
+  }
+}
+
+function isQuotaExceededError(error: unknown): boolean {
+  return error instanceof DOMException
+    && (error.name === 'QuotaExceededError' || error.code === 22 || error.code === 1014)
+}
+
+export function readLocalStorage(key: string): StorageReadResult {
+  try {
+    return { value: window.localStorage.getItem(key), issue: null }
+  } catch {
+    return { value: null, issue: unavailableStorageIssue() }
+  }
+}
+
+export function writeLocalStorage(key: string, value: string): StorageIssue | null {
+  try {
+    window.localStorage.setItem(key, value)
+    return null
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      return {
+        kind: 'quota-exceeded',
+        message: 'De lokale opslagruimte is vol. Je kunt verder werken, maar nieuwe wijzigingen worden mogelijk niet bewaard na een reload.',
+      }
+    }
+    return unavailableStorageIssue()
+  }
 }
 
 function fallbackData(): AppData {
@@ -114,18 +166,33 @@ function migrateStoredData(value: unknown): AppData | null {
   return isAppData(migrated.data) ? migrated.data : null
 }
 
-export function loadLocalData(): AppData {
+export function loadLocalDataResult(): LocalDataLoadResult {
+  const stored = readLocalStorage(storageKey)
+  if (stored.issue) return { data: fallbackData(), issue: stored.issue }
+  if (!stored.value) return { data: fallbackData(), issue: null }
+
   try {
-    const saved = localStorage.getItem(storageKey)
-    if (!saved) return fallbackData()
-    return migrateStoredData(JSON.parse(saved)) ?? fallbackData()
+    const data = migrateStoredData(JSON.parse(stored.value))
+    if (data) return { data, issue: null }
   } catch {
-    return fallbackData()
+    // Invalid JSON uses the same safe recovery path as an invalid schema.
+  }
+
+  return {
+    data: fallbackData(),
+    issue: {
+      kind: 'invalid-data',
+      message: 'Je opgeslagen gegevens konden niet veilig worden gelezen. Er is hersteld naar de demogegevens.',
+    },
   }
 }
 
-export function saveLocalData(data: AppData): void {
-  localStorage.setItem(storageKey, JSON.stringify({
+export function loadLocalData(): AppData {
+  return loadLocalDataResult().data
+}
+
+export function saveLocalData(data: AppData): StorageIssue | null {
+  return writeLocalStorage(storageKey, JSON.stringify({
     schemaVersion: currentStorageSchemaVersion,
     data,
   }))

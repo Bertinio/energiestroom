@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import {
+  AlertTriangle,
   BarChart3,
   BatteryMedium,
   BookOpen,
@@ -16,11 +17,12 @@ import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { fitsEnergyLevel, getEnergyStatus, getGentleSuggestion, netEnergy } from './domain/energy'
 import { useAuth } from './hooks/useAuth'
-import { loadLocalData, loadRemoteData, saveCheckIn, saveLocalData, savePlan, saveReflection } from './lib/data-store'
+import { loadLocalDataResult, loadRemoteData, readLocalStorage, saveCheckIn, saveLocalData, savePlan, saveReflection, writeLocalStorage, type StorageIssue } from './lib/data-store'
 import { isSupabaseConfigured } from './lib/supabase'
 import type { Activity, AppData, AppPage, DailyCheckIn, EveningReflection } from './types'
 
 const today = format(new Date(), 'yyyy-MM-dd')
+const themeStorageKey = 'energiestroom-theme'
 
 const navItems: Array<{ id: AppPage; label: string; icon: typeof Sun }> = [
   { id: 'vandaag', label: 'Vandaag', icon: Sun },
@@ -32,6 +34,16 @@ const navItems: Array<{ id: AppPage; label: string; icon: typeof Sun }> = [
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{children}</section>
+}
+
+function StorageNotice({ issue }: { issue: StorageIssue | null }) {
+  if (!issue) return null
+  return (
+    <div className="storage-notice" role="alert">
+      <AlertTriangle aria-hidden="true" />
+      <div><strong>{issue.kind === 'invalid-data' ? 'Lokale gegevens hersteld' : 'Opslag niet beschikbaar'}</strong><p>{issue.message}</p></div>
+    </div>
+  )
 }
 
 function EnergyBadge({ activity }: { activity: Activity }) {
@@ -231,14 +243,18 @@ function AuthPanel({ onSend, message, loading }: { onSend: (email: string) => Pr
 
 export default function App() {
   const auth = useAuth()
+  const [initialLocalData] = useState(loadLocalDataResult)
+  const [initialTheme] = useState(() => readLocalStorage(themeStorageKey))
   const [page, setPage] = useState<AppPage>('vandaag')
-  const [data, setData] = useState<AppData>(() => loadLocalData())
-  const [dark, setDark] = useState(() => localStorage.getItem('energiestroom-theme') === 'dark')
+  const [data, setData] = useState<AppData>(initialLocalData.data)
+  const [dark, setDark] = useState(initialTheme.value === 'dark')
+  const [storageIssue, setStorageIssue] = useState<StorageIssue | null>(initialLocalData.issue ?? initialTheme.issue)
   const userId = auth.session?.user.id
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    localStorage.setItem('energiestroom-theme', dark ? 'dark' : 'light')
+    const issue = writeLocalStorage(themeStorageKey, dark ? 'dark' : 'light')
+    if (issue) queueMicrotask(() => setStorageIssue(issue))
   }, [dark])
 
   useEffect(() => {
@@ -247,7 +263,10 @@ export default function App() {
   }, [userId])
 
   useEffect(() => {
-    if (!userId) saveLocalData(data)
+    if (!userId) {
+      const issue = saveLocalData(data)
+      if (issue) queueMicrotask(() => setStorageIssue(issue))
+    }
   }, [data, userId])
 
   const currentPage = useMemo(() => {
@@ -269,7 +288,14 @@ export default function App() {
   }, [data, page, userId])
 
   if (isSupabaseConfigured && !auth.loading && !auth.session) {
-    return <main className="auth-shell"><AuthPanel onSend={auth.sendMagicLink} message={auth.message} loading={auth.loading} /></main>
+    return (
+      <main className="auth-shell">
+        <div className="auth-stack">
+          <StorageNotice issue={storageIssue} />
+          <AuthPanel onSend={auth.sendMagicLink} message={auth.message} loading={auth.loading} />
+        </div>
+      </main>
+    )
   }
 
   return (
@@ -291,6 +317,7 @@ export default function App() {
             {auth.session && <button className="icon-button" onClick={() => void auth.signOut()} aria-label="Uitloggen"><LogOut /></button>}
           </div>
         </header>
+        <StorageNotice issue={storageIssue} />
         <main className="content">{currentPage}</main>
       </div>
       <nav className="bottom-nav" aria-label="Hoofdnavigatie">{navItems.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><item.icon /><span>{item.label}</span></button>)}</nav>

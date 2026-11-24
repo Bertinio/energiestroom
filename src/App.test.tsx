@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 describe('Energiestroom', () => {
@@ -10,6 +10,7 @@ describe('Energiestroom', () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
   })
 
   it('toont de rustige dagelijkse check-in', () => {
@@ -51,5 +52,31 @@ describe('Energiestroom', () => {
     expect(screen.getByRole('heading', { name: /wat geeft en vraagt energie/i })).toBeInTheDocument()
     expect(screen.getByText('Rustige wandeling')).toBeInTheDocument()
     expect(screen.getByText('+15')).toBeInTheDocument()
+  })
+
+  it('blijft bruikbaar en waarschuwt wanneer opslag geblokkeerd is', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Opslag geblokkeerd', 'SecurityError')
+    })
+
+    render(<App />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/lokale opslag is niet beschikbaar/i)
+    await user.click(screen.getAllByRole('button', { name: /bibliotheek/i })[0]!)
+    expect(screen.getByRole('heading', { name: /wat geeft en vraagt energie/i })).toBeInTheDocument()
+  })
+
+  it('blijft bruikbaar en waarschuwt bij volle opslag', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Opslag vol', 'QuotaExceededError')
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/lokale opslagruimte is vol/i)
+    await user.click(screen.getAllByRole('button', { name: /bibliotheek/i })[0]!)
+    expect(screen.getByRole('heading', { name: /wat geeft en vraagt energie/i })).toBeInTheDocument()
   })
 })
